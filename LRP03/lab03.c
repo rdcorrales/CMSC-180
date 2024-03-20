@@ -21,13 +21,6 @@ typedef struct {
     double *result;
 } ThreadArgs;
 
-void set_affinity(pthread_t thread, int core_id) {
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(core_id, &cpuset);
-    pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
-}
-
 int main (int argc, char **argv){
 
     FILE *input_file = fopen(argv[1], "r");
@@ -44,6 +37,8 @@ int main (int argc, char **argv){
             continue;
         }
         struct timeval start, end;
+        
+        	
 
         time_t t1; 
         srand((unsigned) time (&t1));
@@ -70,14 +65,9 @@ int main (int argc, char **argv){
         //Create a 1 x n vector v;
         double *v = malloc(n * sizeof(double));
 
-        int num_cores = sysconf(_SC_NPROCESSORS_ONLN); // Get number of online CPU cores
+        int num_cores = sysconf(_SC_NPROCESSORS_ONLN) -1; // Get number of online CPU cores
         int num_threads = t; // Leaving out one core
-        int num_threads_per_core = (num_cores == 4) ? 3 : ((num_cores == 8) ? 7 : 1);
-
-        int core_assignments[t];
-        for (int i = 0; i < t; i++) {
-            core_assignments[i] = i % num_threads_per_core; // Assign threads sequentially to cores
-        }
+      
         // // //Take note of the system time time_before;
         gettimeofday(&start, NULL);
         
@@ -93,14 +83,17 @@ int main (int argc, char **argv){
             args[i].end_idx = start_idx + block_size + (i < remainder ? 1 : 0); //end column
             args[i].result = v;
             
+            pthread_attr_t attr;
             cpu_set_t cpuset;
+            pthread_attr_init(&attr);
             CPU_ZERO(&cpuset);
-            int core_id = (num_cores == 4) ? i % 3 : i % 7; // Assign threads to cores 0, 1, and 2 for 4 cores; 0 to 6 for 8 cores
+            int core_id = i % num_cores; // Assign threads to cores 0, 1, and 2 for 4 cores; 0 to 6 for 8 cores
             CPU_SET(core_id, &cpuset);
             
-            pthread_create(&threads[i], NULL, compute_correlations, (void *)&args[i]);
+            pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpuset);
+            pthread_create(&threads[i], &attr, compute_correlations, (void *)&args[i]);
 
-            set_affinity(threads[i], core_assignments[i]);
+            //set_affinity(threads[i], core_assignments[i]);
             
 
             start_idx = args[i].end_idx;

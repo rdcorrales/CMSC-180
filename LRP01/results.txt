@@ -1,0 +1,9 @@
+n:25000 - time elapsed: 10.023525 seconds
+n:25000 - time elapsed: 9.975544 seconds
+n:25000 - time elapsed: 9.942152 seconds
+n:30000 - time elapsed: 15.914027 seconds
+n:30000 - time elapsed: 16.099215 seconds
+n:30000 - time elapsed: 16.460357 seconds
+n:40000 - time elapsed: 55.451202 seconds
+n:40000 - time elapsed: 53.236341 seconds
+n:40000 - time elapsed: 53.198287 seconds

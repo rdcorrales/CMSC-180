@@ -29,6 +29,13 @@ int main (int argc, char **argv){
         return 1;
     }
 
+    FILE *output_file = fopen("results.txt", "w");
+    if (!output_file) {
+        printf("Error: Unable to create output file.\n");
+        fclose(input_file);
+        return 1;
+    }
+
     char line[256];
     while (fgets(line, sizeof(line), input_file)) {
         int n, t;
@@ -123,12 +130,14 @@ int main (int argc, char **argv){
 
         // //output time_elapsed;
         printf("n:%d t:%d - time elapsed: %f seconds\n", n, t, time_elapsed);
+        fprintf(output_file, "n:%d t:%d - time elapsed: %f seconds\n", n, t, time_elapsed);
 
         free(X);
         free(y);
         free(v);
     }
     fclose(input_file);
+    fclose(output_file);
     return 0;
 }
 

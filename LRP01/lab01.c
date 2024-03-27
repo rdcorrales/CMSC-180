@@ -5,12 +5,19 @@
 #include <sys/time.h>
 
 double generateRandomNonZero();
-double *pearson_cor(double *X, double *y, int n);
+double *pearson_cor(int *X, int *y, int n);
 
 int main (int argc, char **argv){
     FILE *input_file = fopen(argv[1], "r");
     if (!input_file) {
         printf("Error: Unable to open input file.\n");
+        return 1;
+    }
+
+    FILE *output_file = fopen("results.txt", "w");
+    if (!output_file) {
+        printf("Error: Unable to create output file.\n");
+        fclose(input_file);
         return 1;
     }
 
@@ -28,35 +35,35 @@ int main (int argc, char **argv){
         srand((unsigned) time (&t1));
 
         //Create a non-zero n x n square matrix X whose elements are assigned with random integers
-        //double *X = malloc(n*n*sizeof(double));
-        //for (int i = 0; i < n*n; i++){
-        //    X[i] = generateRandomNonZero(); 
-        //}
-        double weight[] = {3.63, 3.02, 3.82, 3.42, 3.59, 2.87, 3.03, 3.46, 3.36, 3.3};
-        double *X = malloc(n*n*sizeof(double));
-        for (int i = 0; i < n; i++){
-        	for (int j = 0; j <n; j++){
-        		X[i*n+j] = weight[i];
-        	}
+        int *X = malloc(n*n*sizeof(int));
+        for (int i = 0; i < n*n; i++){
+            X[i] = generateRandomNonZero(); 
         }
+        //double weight[] = {3.63, 3.02, 3.82, 3.42, 3.59, 2.87, 3.03, 3.46, 3.36, 3.3};
+        //double *X = malloc(n*n*sizeof(double));
+        //for (int i = 0; i < n; i++){
+        	//for (int j = 0; j <n; j++){
+        		//X[i*n+j] = weight[i];
+        	//}
+        //}
         
-         printf("2D array X\n");
-         for (int i = 0; i < n; i++) {
-             for (int j = 0; j < n; j++)
-                 printf("%f ", X[i * n + j]);
-             printf("\n");
-         }
+         //printf("2D array X\n");
+         //for (int i = 0; i < n; i++) {
+             //for (int j = 0; j < n; j++)
+                 //printf("%f ", X[i * n + j]);
+             //printf("\n");
+         //}
         
         //Create a non-zero n x 1 vector y whose elements are assigned with random integers;
-        //double* y = (double*) malloc(n * sizeof(double)); 
-        //for (int i = 0; i < n; i++){
-        //    y[i] = generateRandomNonZero();
-        //}
-        double weight2[] = {53.1, 49.7, 48.4, 54.2, 54.9, 43.7, 47.2, 45.2, 54.4, 50.4};
-        double* y = (double*) malloc(n * sizeof(double));
+        int* y = (int*) malloc(n * sizeof(int)); 
         for (int i = 0; i < n; i++){
-            y[i] = weight2[i];
+            y[i] = generateRandomNonZero();
         }
+        //double weight2[] = {53.1, 49.7, 48.4, 54.2, 54.9, 43.7, 47.2, 45.2, 54.4, 50.4};
+        //double* y = (double*) malloc(n * sizeof(double));
+        //for (int i = 0; i < n; i++){
+            //y[i] = weight2[i];
+        //}
 
         //Create a 1 x n vector v;
 
@@ -76,33 +83,35 @@ int main (int argc, char **argv){
         double time_elapsed = (double)(((end.tv_sec * 1000000 + end.tv_usec)) - ((start.tv_sec * 1000000 + start.tv_usec))) / pow(10,6);
 
         //output time_elapsed;
-        printf("time elapsed: %f seconds\n", time_elapsed);
         
-          printf("\narray y\n");
-         for (int i = 0; i < n; i++) { 
-             printf("%f ", y[i]); 
-         }
-         printf("\n");
+          //printf("\narray y\n");
+         //for (int i = 0; i < n; i++) { 
+             //printf("%f ", y[i]); 
+         //}
+         //printf("\n");
         
-        printf("\n\nPearson correlation coefficients:\n");
-        for (int i = 0; i < n; i++) {
-             printf("%f ", v[i]);
-         }
-         printf("\n");
-
+        //printf("\n\nPearson correlation coefficients:\n");
+        //for (int i = 0; i < n; i++) {
+             //printf("%f ", v[i]);
+         //}
+         //printf("\n");
+         
+        printf("n:%d - time elapsed: %f seconds\n", n, time_elapsed);
+        fprintf(output_file, "n:%d - time elapsed: %f seconds\n", n, time_elapsed);
         free(X);
         free(y);
         free(v);
-        
-        return 0;
-}
+    }
+    fclose(input_file);
+    fclose(output_file);
+    return 0;
 }
 
 double generateRandomNonZero() {
     return (double)(rand() % 100) + 1;  // Generating random integers between 1 and 9
 }
 
-double* pearson_cor(double * X, double *y, int n){
+double* pearson_cor(int * X, int *y, int n){
     double *v = (double *)malloc(n * sizeof(double));
     double sum_X = 0, sum_y = 0, sum_Xy = 0, sum_X2 = 0, sum_y2 = 0;
     for (int k = 0; k < n; k++) {

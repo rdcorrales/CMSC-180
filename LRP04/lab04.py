@@ -1,10 +1,10 @@
-import numpy as np
-import timeit
-import socket
 import pickle
+import socket
 import threading
 import time
-t = 3
+import timeit
+import numpy as np
+import os
 
 class ThreadArguments:
     def __init__(self, threadId, n, start_idx, end_idx, result):
@@ -14,55 +14,27 @@ class ThreadArguments:
         self.end_idx = end_idx
         self.result = result
 
-# Function to handle client connections
-def handle_client(client_socket, addr, data, index):
-    print(f"[INFO] Accepted connection from {addr}")
-
-    # Ensure index is within the bounds of the data list
-    if index < len(data):
-        # Serialize the t-th object using pickle and send it to the t-th client
-        serialized_obj = pickle.dumps(data[index])
-        client_socket.sendall(serialized_obj)
-    
-    print(client_socket.recv(1024))
-
-    print(f"[INFO] Finished sending data to {addr}")
-    client_socket.close()
-
-def receive_data(server_socket):
-    # Receive data from the server
-    serialized_data = server_socket.recv(4096)
-
-    # Deserialize the received data using pickle
-    received_object = pickle.loads(serialized_data)
-
-    return received_object
-
 def main():
-    # Read n, p and s as user inputs
-    # n is the size of the square matrix
-    # p is the port number
-    # s is the status of the instance 
-        # (0 for master and 1 for slave)
-    n, p, s = input("Enter n, p, s: ").split()
+    n, p, s, t = input("Enter n, p, s, t: ").split()
     
     try:
         n = int(n)
-        p = int(n)
+        p = int(p)
         s = int(s)
+        t = int(t)
     except ValueError:
         print("User input is not an integer")
-    
-    if (s==0):
-        # Master 
-        master(n,p)
-    elif (s==1):
-        slave(n,p)
-    
-def master(n, p):
-    #Create a non-zero nxn square matrix M
-    M = np.random.randint(100, size=(n,n)).tolist()
 
+    host= '127.0.0.1'
+
+    if (s == 0):
+        master(host, p, n, t)
+    else:
+        slave(host, p)
+
+def master(host, p, n, t):
+    M = np.random.randint(100, size=(n,n)).tolist()
+    # print(M)
     threadArgs = []
     blockSize = n/t
     remainder = n%t
@@ -73,92 +45,101 @@ def master(n, p):
         start_idx = int(start_idx+blockSize + (1 if i<remainder else 0))
     
     start = timeit.default_timer()
-    # stop = timeit.default_timer()
-    # print("Time taken:", stop - start)
+    
+    srvsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    print('Server socket opened')
 
-    host= '127.0.0.1'
-    port = 12345
+    srvsocket.bind((host, p))
+    print('Bind to the local port')
 
-    # Create a socket object
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srvsocket.listen(t)
+    print('Started Listening')
 
-    # Bind the socket to the host and port
-    server_socket.bind((host, port))
-
-    # Start listening for incoming connections
-    server_socket.listen(t)
-    print(f"[INFO] Server listening on {host}:{port}")
-
-    try:
-        client_counter = 0
-        while 1:
-            # Accept incoming connection
-            client_socket, addr = server_socket.accept()
-
-            # Determine the index based on the number of clients served so far
-            index = client_counter
-            client_counter += 1
-
-            # Start a new thread to handle the client
-            client_thread = threading.Thread(target=handle_client, args=(client_socket, addr, threadArgs, index))
-            client_thread.start()
- 
-            # if client_counter >= t:
-            #     stop = timeit.default_timer()
-            #     print("Time taken:", stop - start)
-            #     print("[INFO] Server shutting down.")
-            #     server_socket.close()
+    client_counter = 0
+    while True:
+        print('Waiting for connections')
         
-    except KeyboardInterrupt:
-        print("[INFO] Server shutting down.")
-        server_socket.close()
+        cli, ip = srvsocket.accept()
+        index = client_counter
+        
+        if index >= t:
+            print("Maximum number of clients reached")
+            cli.close()
+            continue
 
-def slave(n,p):
-    server_address= '127.0.0.1'
-    server_port = 12345
+        client_counter+=1
 
-    # Create a socket object
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    print("[INFO] Waiting for server to initiate connection...")
+        # if index < len(threadArgs):
+        #     serialized_obj = pickle.dumps(threadArgs[index])
+        #     cli.sendall(serialized_obj)
+
+        data = []
+        for i in range(0, len(M)):
+            temp_data = []
+            for j in range(threadArgs[index].start_idx, threadArgs[index].end_idx):
+                temp_data.append(M[i][j])
+            data.append(temp_data)
+        
+        serialized_arr = pickle.dumps(data)
+        cli.sendall(serialized_arr)
+        # print(data)
+
+        threading._start_new_thread(NewClientSocketHandler, (cli, ip, client_counter, start,  t))
+
+def NewClientSocketHandler(cli, ip, index, start, t):
+    print('The new client has socket id: ', cli)
+    
+    print('Message got from client', cli)
+    print(cli.recv(256).decode())
+
+    if index == t:
+        stop = timeit.default_timer()
+        print("Time taken:", stop - start)
+
+def slave(host, p):
+    clisocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     connected = False
     while not connected:
         try:
-            #Connect to the server
-            client_socket.connect((server_address, server_port))
+
+            clisocket.connect((host, p))
+            print('Client has been connected')
             start = timeit.default_timer()
             connected = True
-            print(f"[INFO] Connected to server {server_address}:{server_port}")
+            
         except ConnectionRefusedError:
             print("[INFO] Connection refused by the server. Retrying in 1 second...")
             time.sleep(1)
             continue
 
-    try:
-        # Receive and deserialize data from the server
-        arg = receive_data(client_socket)
+    print('The message from server')
+    # serialized_data = clisocket.recv(4096)
 
-        # Process the received data
-        print("Thread ID:", arg.threadId)
-        print("Size of the square matrix:", arg.n)
-        print("Start index:", arg.start_idx)
-        print("End index:", arg.end_idx)
-        print("Result:", arg.result)
-        print()
+    
+    data = []
+    while True:
+        packet = clisocket.recv(4096)
+        if not packet: break
+        data.append(packet)
+    # data_arr = pickle.loads(b"".join(data))
+    print (data)
 
-        ack = 'ack'
-        client_socket.sendall(ack.encode())
-        # print("[INFO] Received data:", received_data)
-    except ConnectionRefusedError:
-        print("[INFO] Connection refused by the server.")
-    finally:
-        # Close the connection
-        client_socket.close()
-        stop = timeit.default_timer()
+    # received_object = pickle.loads(data)
+    # print("Thread ID:", received_object.threadId)
+    # print("Size of the square matrix:", received_object.n)
+    # print("Start index:", received_object.start_idx)
+    # print("End index:", received_object.end_idx)
+    # print("Result:", received_object.result)
+    # print()
+    # print(received_object)
+
+    msg = 'ack'
+    clisocket.send(msg.encode())
+
+    stop = timeit.default_timer()
     print("Time taken:", stop - start)
 
-# stop = timeit.default_timer()
-# print("Time taken:", stop - start)
 
 if __name__ == "__main__":
     main()

@@ -17,7 +17,7 @@ def main():
     except ValueError:
         print("User input is not an integer")
 
-    host= '127.0.0.1'
+    host= '10.0.4.51'
 
     if (s == 0):
         master(host, p, n, t)
@@ -58,7 +58,8 @@ def master(host, p, n, t):
 def NewClientSocketHandler(cli, ip, serialized_data, start, t, myDict):
     
     print('The new client has socket id: ', cli)
-    cli.sendall(serialized_data)
+    # cli.sendall(serialized_data)
+    cli.sendall(len(serialized_data).to_bytes(4, byteorder='big') + serialized_data)
     
     print('Message got from client', ip)
     print(cli.recv(4096).decode())
@@ -86,12 +87,16 @@ def slave(host, p):
 
     print('The message from server')
     # Receive the actual data
+    data_length = int.from_bytes(clisocket.recv(4), byteorder='big')
     serialized_data = bytearray()
-    while True:
+    # while True:
+    #     data_chunk = clisocket.recv(4096)
+    #     serialized_data.extend(data_chunk)
+    #     if (len(data_chunk) <4096):
+    #         break
+    while len(serialized_data) < data_length:
         data_chunk = clisocket.recv(4096)
         serialized_data.extend(data_chunk)
-        if (len(data_chunk) <4096):
-            break
 
     try:
         data = pickle.loads(serialized_data)

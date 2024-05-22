@@ -28,7 +28,7 @@ def main():
     except ValueError:
         print("User input is not an integer")
 
-    host= '127.0.0.1'
+    host= '10.0.4.51'
 
     if (s == 0):
         master(host, p, n, t)

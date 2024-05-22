@@ -5,14 +5,17 @@ import time
 import timeit
 import numpy as np
 import os
+import json
+import base64
 
-class ThreadArguments:
-    def __init__(self, threadId, n, start_idx, end_idx, result):
-        self.threadId = threadId
-        self.n = n
-        self.start_idx = start_idx
-        self.end_idx = end_idx
-        self.result = result
+# class ThreadArguments:
+#     def __init__(self, threadId, submatrix, n, start_idx, end_idx, result):
+#         self.threadId = threadId
+#         self.submatrix = submatrix
+#         self.n = n
+#         self.start_idx = start_idx
+#         self.end_idx = end_idx
+#         self.result = result
 
 def main():
     n, p, s, t = input("Enter n, p, s, t: ").split()
@@ -32,17 +35,39 @@ def main():
     else:
         slave(host, p)
 
+def reshape_matrix(matrix, num_slaves):
+    n = len(matrix)
+    cols_per_submatrix = n // num_slaves  # Determine the number of columns in each submatrix
+    remainder_cols = n % num_slaves  # Determine the number of remainder columns
+    submatrices = []
+
+    # Split the matrix into submatrices
+    start_col = 0
+    for i in range(num_slaves):
+        extra_cols = 1 if i < remainder_cols else 0  # Distribute remainder columns among submatrices
+        end_col = start_col + cols_per_submatrix + extra_cols
+
+        # Extract the columns for the current submatrix
+        submatrix = [row[start_col:end_col] for row in matrix]
+        submatrices.append(submatrix)
+
+        start_col = end_col
+
+    return submatrices
+
 def master(host, p, n, t):
     M = np.random.randint(100, size=(n,n)).tolist()
     # print(M)
-    threadArgs = []
-    blockSize = n/t
-    remainder = n%t
-    start_idx = 0
-    result = []
-    for i in range(0, t):
-        threadArgs.append(ThreadArguments((i+1), n, start_idx, int(start_idx+blockSize + (1 if i<remainder else 0)), result))
-        start_idx = int(start_idx+blockSize + (1 if i<remainder else 0))
+    submatrix = reshape_matrix(M, t)
+    # print(submatrix)
+    # threadArgs = []
+    # blockSize = n/t
+    # remainder = n%t
+    # start_idx = 0
+    # result = []
+    # for i in range(0, t):
+    #     threadArgs.append(ThreadArguments((i+1), submatrix[i], n, start_idx, int(start_idx+blockSize + (1 if i<remainder else 0)), result))
+    #     start_idx = int(start_idx+blockSize + (1 if i<remainder else 0))
     
     start = timeit.default_timer()
     
@@ -55,46 +80,41 @@ def master(host, p, n, t):
     srvsocket.listen(t)
     print('Started Listening')
 
+    myDict = {}
+
     client_counter = 0
-    while True:
+    while client_counter != t:
         print('Waiting for connections')
-        
-        cli, ip = srvsocket.accept()
         index = client_counter
-        
-        if index >= t:
-            print("Maximum number of clients reached")
-            cli.close()
-            continue
-
+        cli, ip = srvsocket.accept()
+        submatrix_json = {"submatrix": submatrix[index]}
+        submatrix_dumps = json.dumps(submatrix_json)
+        submatrix_b64 = base64.b64encode(submatrix_dumps.encode()).decode()
+        print(submatrix_b64[:10])
+        print(submatrix_b64[-10:])
+        # variable = threading.Thread(target=NewClientSocketHandler, args=(cli, ip, pickle.dumps(submatrix[index]), start,  t, myDict))
+        variable = threading.Thread(target=NewClientSocketHandler, args=(cli, ip, submatrix_b64, start,  t, myDict))
+        variable.start()    
         client_counter+=1
-
-        # if index < len(threadArgs):
-        #     serialized_obj = pickle.dumps(threadArgs[index])
-        #     cli.sendall(serialized_obj)
-
-        data = []
-        for i in range(0, len(M)):
-            temp_data = []
-            for j in range(threadArgs[index].start_idx, threadArgs[index].end_idx):
-                temp_data.append(M[i][j])
-            data.append(temp_data)
-        
-        serialized_arr = pickle.dumps(data)
-        cli.sendall(serialized_arr)
-        # print(data)
-
-        threading._start_new_thread(NewClientSocketHandler, (cli, ip, client_counter, start,  t))
-
-def NewClientSocketHandler(cli, ip, index, start, t):
-    print('The new client has socket id: ', cli)
+        variable.join()
+        # print(data
     
-    print('Message got from client', cli)
-    print(cli.recv(256).decode())
+    print("Time taken:", sum(myDict.values()))
+    
+def NewClientSocketHandler(cli, ip, serialized_data, start, t, myDict):
+    
+    print('The new client has socket id: ', cli)
+    # cli.sendall(serialized_data)
+    data_length = len(serialized_data)
+    cli.sendall(data_length.to_bytes(4, byteorder='big'))  # Send length as 4 bytes
+    cli.sendall(serialized_data.encode())
+    
+    print('Message got from client', ip)
+    print(cli.recv(4096).decode())
 
-    if index == t:
-        stop = timeit.default_timer()
-        print("Time taken:", stop - start)
+    stop = timeit.default_timer()
+    myDict[ip] = stop-start
+    # print("Time taken:", stop - start)
 
 def slave(host, p):
     clisocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -114,32 +134,59 @@ def slave(host, p):
             continue
 
     print('The message from server')
-    # serialized_data = clisocket.recv(4096)
+
+    # First receive the length of the data
+    data_length_bytes = clisocket.recv(4)
+    data_length = int.from_bytes(data_length_bytes, byteorder='big')
+
+    # Receive the actual data
+    serialized_data = bytearray()
+    while len(serialized_data) < data_length:
+        data_chunk = clisocket.recv(min(4096, data_length - len(serialized_data)))
+        serialized_data.extend(data_chunk)
+    
+    try:
+        data_str = serialized_data.decode()
+        print(data_str[:10])
+        print(data_str[-10:])
+        # Decode the Base64 string
+        decoded_data = base64.b64decode(data_str.encode()).decode()
+        
+        # Deserialize the JSON data
+        submatrix_json = json.loads(decoded_data)
+        submatrix = submatrix_json['submatrix']
+
+        # print("Received submatrix:", submatrix)
+    except pickle.UnpicklingError as e:
+        print(f'Error occured while unpickling: {e}')
 
     
-    data = []
-    while True:
-        packet = clisocket.recv(4096)
-        if not packet: break
-        data.append(packet)
-    # data_arr = pickle.loads(b"".join(data))
-    print (data)
 
-    # received_object = pickle.loads(data)
-    # print("Thread ID:", received_object.threadId)
-    # print("Size of the square matrix:", received_object.n)
-    # print("Start index:", received_object.start_idx)
-    # print("End index:", received_object.end_idx)
-    # print("Result:", received_object.result)
-    # print()
-    # print(received_object)
+    # serialized_data = bytearray()
+    # serialized_data = []
+    # while True:
+        
+    #     data_chunk = clisocket.recv(4096).decode()
+        
+    #     serialized_data.append(data_chunk)
+    #     # if len(data_chunk) < 4096:
+    #     if not data_chunk:
+    #         break
 
+    # data_chunk = clisocket.recv(4096).decode()    
+
+
+    # try:
+    #     print(data_chunk[:10])
+    # except pickle.UnpicklingError as e:
+    #     print(f'Error occured while unpickling: {e}')
+    # # print(data)
+    
     msg = 'ack'
     clisocket.send(msg.encode())
 
     stop = timeit.default_timer()
     print("Time taken:", stop - start)
-
 
 if __name__ == "__main__":
     main()

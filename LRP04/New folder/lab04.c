@@ -1,14 +1,20 @@
-#include <netinet/in.h>
+#define _GNU_SOURCE
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <arpa/inet.h>
-#include <pthread.h>
-#include <sys/time.h>
+#include <stdlib.h>file:///home/ralph/Desktop/rdcorrales_CMSC_180/LRP01/lab01.c
+
 #include <math.h>
-// #define PORT 8080
+#include <sys/time.h>
+#include <pthread.h>
+#include <unistd.h>file:///home/ralph/Desktop/rdcorrales_CMSC_180/LRP01/lab01.c
+
+
+int generateRandomNonZero();
+double *pearson_cor(int *X, int *y, int n, int start_idx, int end_idx);
+void *compute_correlations(void *args);
+
+int *X;
+int *y;
+
 typedef struct {
     int thread_id;
     int n;
@@ -17,244 +23,153 @@ typedef struct {
     double *result;
 } ThreadArgs;
 
-int generateRandomNonZero();
-void *handle_client(void *socket_desc);
-int master(int n, int port, int numSlaves);
-int slave(int n, int port);
+int main (int argc, char **argv){
 
-int *M;
-
-int main(){
-    int n, p, s, t;
-    scanf("%d %d %d %d", &n, &p, &s, &t);
-
-    if (s == 0){
-        master(n, p, t);
-    } else if (s == 1) {
-        // slave(n, p);
-        printf("Waiting for server on port %d...\n", p);
-        int client_fd = slave(n, p);
-        if (client_fd != -1) {
-            printf("Connected to server!\n");
-            // Handle communication with server here
-        } else {
-            printf("Failed to connect to server. Exiting...\n");
-        }
-    }
-    return 0;
-}
-
-int master(int n, int port, int numSlaves){
-    printf("In master\n");
-
-    //Create a non-zero nxn square matrix M whose elements are 
-    //assigned with random non-zero positive integers
-    M = malloc(n*n*sizeof(int));
-        for (int i = 0; i < n*n; i++){
-            M[i] = generateRandomNonZero(); 
+    if (argc != 5) {
+        printf("Usage: %s n p s t\n", argv[0]);
+        return 1;
     }
 
+    int n = atoi(argv[1]);  // size of the square matrix
+    int p = atoi(argv[2]);  // port
+    int s = atoi(argv[3]);  // slave
+    int t = atoi(argv[4]);  // number of threads
+
+    struct timeval start, end;
+    
+    time_t t1; 
+    srand((unsigned) time (&t1));
+
+    //Create a non-zero n x n square matrix X whose elements are assigned with random integers
+    X = malloc(n*n*sizeof(int));
+    for (int i = 0; i < n*n; i++){
+        X[i] = generateRandomNonZero(); 
+    }
+    
+    //Create a non-zero n x 1 vector y whose elements are assigned with random integers;
+    y = (int*) malloc(n * sizeof(int)); 
+    for (int i = 0; i < n; i++){
+        y[i] = generateRandomNonZero();
+    }
+
+    // printf("2D array X\n");
+    // for (int i = 0; i < n; i++) {
+    //     for (int j = 0; j < n; j++)
+    //         printf("%d ", X[i * n + j]);
+    //     printf("\n");
+    // }
+
+    //Create a 1 x n vector v;
     double *v = malloc(n * sizeof(double));
 
-    ThreadArgs args[numSlaves];
-    int block_size = n / numSlaves;
-    int remainder = n % numSlaves;
+    int num_cores = sysconf(_SC_NPROCESSORS_ONLN) -1; // Get number of online CPU cores
+    int num_threads = t; // Leaving out one core
+    
+    // // //Take note of the system time time_before;
+    gettimeofday(&start, NULL);
+    
+    pthread_t threads[t];
+    ThreadArgs args[t];
+    int block_size = n / num_threads;
+    int remainder = n % num_threads;
     int start_idx = 0;
-    for (int i = 0; i < numSlaves; i++) {
+    for (int i = 0; i < num_threads; i++) {
         args[i].thread_id = i + 1;
         args[i].n = n; //row
         args[i].start_idx = start_idx; //start column
         args[i].end_idx = start_idx + block_size + (i < remainder ? 1 : 0); //end column
         args[i].result = v;
+        
+        pthread_attr_t attr;
+        cpu_set_t cpuset;
+        pthread_attr_init(&attr);
+        CPU_ZERO(&cpuset);
+        int core_id = i % num_cores; // Assign threads to cores 0, 1, and 2 for 4 cores; 0 to 6 for 8 cores
+        CPU_SET(core_id, &cpuset);
+        
+        pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpuset);
+        pthread_create(&threads[i], &attr, compute_correlations, (void *)&args[i]);
+
+        //set_affinity(threads[i], core_assignments[i]);
+        
+
         start_idx = args[i].end_idx;
     }
 
-    int server_fd, new_socket;
-    struct sockaddr_in address;
-    int opt = 1;
-    socklen_t addrlen = sizeof(address);
-    char* hello = "Hello from server";
-
-    struct timeval time_before, time_after;
-
-    // Creating socket file descriptor
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
-        perror("socket failed");
-        exit(EXIT_FAILURE);
+    for (int i = 0; i < t; i++) {
+        pthread_join(threads[i], NULL);
     }
- 
-    // Forcefully attaching socket to the port 8080
-    if (setsockopt(server_fd, SOL_SOCKET,
-                   SO_REUSEADDR, &opt,
-                   sizeof(opt))) {
-        perror("setsockopt");
-        exit(EXIT_FAILURE);
-    }
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(port);
- 
-    // Forcefully attaching socket to the port 8080
-    if (bind(server_fd, (struct sockaddr*)&address,
-             sizeof(address))
-        < 0) {
-        perror("bind failed");
-        exit(EXIT_FAILURE);
-    }
-    if (listen(server_fd, 3) < 0) {
-        perror("listen");
-        exit(EXIT_FAILURE);
-    }
-
-    printf("Server listening on port %d...\n", port);
-
-    int client_count = 0;
-    gettimeofday(&time_before, NULL);
-    while(client_count < numSlaves){
-        if ((new_socket = accept(server_fd, (struct sockaddr*)&address, &addrlen)) < 0) {
-            perror("accept");
-            exit(EXIT_FAILURE);
-        }
-
-        // Create a new thread for each client connection
-        pthread_t thread_id;
-        if (pthread_create(&thread_id, NULL, handle_client, (void*)&args[client_count]) < 0) {
-            perror("could not create thread");
-            exit(EXIT_FAILURE);
-        }
-        
-        // Detach the thread to allow it to run independently
-        pthread_detach(thread_id);
-        client_count++;
-
-        // if (client_count == numSlaves) {
-        //     break; // Break the loop after accepting 't' clients
-        // }
-    }
-
-    while (client_count > 0) {
-        sleep(1); // Wait for 1 second
-        client_count--;
-    }
-    gettimeofday(&time_after, NULL);
-
-    // Calculate time taken
-    double elapsed_time = (double)(((time_after.tv_sec * 1000000 + time_after.tv_usec)) - ((time_before.tv_sec * 1000000 + time_before.tv_usec))) / pow(10,6);
-
-    printf("Time taken to receive messages from %d clients: %.6f seconds\n", numSlaves, elapsed_time);
-    return 0; 
-}
-
-int slave(int n, int port){
-    printf("In slave\n");
-    int status, client_fd;
-    struct sockaddr_in serv_addr;
-    char* hello = "Hello from client";
-    char buffer[1024] = { 0 };
-
-    struct timeval time_before, time_after;
-    while(1){
-        if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-            printf("\n Socket creation error \n");
-            return -1;
-        }
- 
-        serv_addr.sin_family = AF_INET;
-        serv_addr.sin_port = htons(port);
- 
-        // Convert IPv4 and IPv6 addresses from text to binary
-        // form
-        if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr)
-            <= 0) {
-            printf(
-                "\nInvalid address/ Address not supported \n");
-            return -1;
-        }
- 
-        if ((status
-            = connect(client_fd, (struct sockaddr*)&serv_addr,
-                   sizeof(serv_addr)))
-            < 0) {
-            printf("Failed to connect to server. Retrying in 1 second...\n");
-            close(client_fd);
-            sleep(1); // Wait for 1 second before retrying
-        } else {
-            // Connection successful
-        break;
-        }
-    }
-    gettimeofday(&time_before, NULL);
-    // Receive message from server
-    ssize_t valread = read(client_fd, buffer, 1024);
-    printf("Received from server: %s\n", buffer);
-
-    // Send response back to server
-    char* response = "ack";
-    send(client_fd, response, strlen(response), 0);
-    printf("Response sent to server\n");
-
-    // Capture time after sending message
-    gettimeofday(&time_after, NULL);
-
-    double send_elapsed_time = (double)(((time_after.tv_sec * 1000000 + time_after.tv_usec)) - ((time_before.tv_sec * 1000000 + time_before.tv_usec))) / pow(10,6);
-
-    printf("Time taken to send message to server: %.6f seconds\n", send_elapsed_time);
-
-    // Keep client connected
-    while (1) {
-        // Receive any further messages from server
-        ssize_t valread = read(client_fd, buffer, 1024);
-        if (valread <= 0) {
-            break; // Server disconnected
-        }
-        printf("Received from server: %s\n", buffer);
-        
-        // Send any further responses to server
-        // Example: send(client_fd, response, strlen(response), 0);
-    }
-
     
-    // Close client socket
-    close(client_fd);
+    // printf("\narray y\n");
+    // for (int i = 0; i < n; i++) { 
+    //     printf("%d ", y[i]); 
+    // }
+    // printf("\n");
+
+    // printf("\n\nPearson correlation coefficients:\n");
+    // for (int i = 0; i < n; i++) {
+    //     printf("%f ", v[i]);
+    // }
+    // printf("\n");
+
+    // //Take note of the system time time_after;
+    gettimeofday(&end, NULL);
+
+    // //Obtain the elapsed time time_elapsed:=time_after – time_before;
+    double time_elapsed = (double)(((end.tv_sec * 1000000 + end.tv_usec)) - ((start.tv_sec * 1000000 + start.tv_usec))) / pow(10,6);
+
+    // //output time_elapsed;
+    printf("n:%d t:%d - time elapsed: %f seconds\n", n, t, time_elapsed);
+    fprintf(output_file, "n:%d t:%d - time elapsed: %f seconds\n", n, t, time_elapsed);
+
+    free(X);
+    free(y);
+    free(v);
+
     return 0;
 }
 
-void *handle_client(void *args) {
-    ThreadArgs *thread_args = (ThreadArgs*)args;
-    int client_socket = -1; // Initialize client socket
-
-    // Connect to client
-    if ((client_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        printf("\n Socket creation error \n");
-        pthread_exit(NULL);
-    }
-    struct sockaddr_in serv_addr;
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(port);
-
-    // Convert IPv4 and IPv6 addresses from text to binary
-    if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0) {
-        printf("\nInvalid address/ Address not supported \n");
-        pthread_exit(NULL);
-    }
-    if (connect(client_socket, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
-        printf("\nConnection Failed \n");
-        pthread_exit(NULL);
-    }
-
-    // Serialize ThreadArgs struct into a string format
-    char args_str[1024]; // Assuming serialized string won't exceed 1024 characters
-    snprintf(args_str, sizeof(args_str), "%d %d %d %d %p", thread_args->thread_id, thread_args->n, thread_args->start_idx, thread_args->end_idx, (void*)thread_args->result);
-
-    // Send serialized ThreadArgs struct to client
-    send(client_socket, args_str, strlen(args_str), 0);
-
-    // Close client socket
-    close(client_socket);
-    pthread_exit(NULL);
-    
-}
-
 int generateRandomNonZero() {
-    return (int)(rand() % 100) + 1;  // Generating random integers between 1 and 9
+    return (rand() % 10) + 1;  // Generating random integers between 1 and 9
 }
+
+double* pearson_cor(int * X, int *y, int n, int start_idx, int end_idx){
+    double *v = (double *)malloc(n * sizeof(double));
+    double sum_X = 0, sum_y = 0, sum_Xy = 0, sum_X2 = 0, sum_y2 = 0;
+
+    for (int k = 0; k < n; k++) {
+        sum_y += y[k];
+        sum_y2 += y[k] * y[k];
+    }
+    for (int i = start_idx; i < end_idx; i++) {
+        sum_X = sum_X2 = sum_Xy = 0;
+        for (int k = 0; k < n; k++) {
+            sum_X += X[k * n + i];
+            sum_X2 += X[k * n + i] * X[k * n + i];
+            sum_Xy += X[k * n + i] * y[k];
+
+        }
+        double numerator = n * sum_Xy - sum_X * sum_y;
+        double denominator = sqrt((n * sum_X2 - sum_X * sum_X) * (n * sum_y2 - sum_y * sum_y));
+        v[i] = (denominator != 0) ? numerator / denominator : 0; // Avoid division by zero
+    }
+
+    return v;
+}
+
+void *compute_correlations(void *args) {
+    ThreadArgs *thread_args = (ThreadArgs *)args;
+    double *v = pearson_cor(X, y, thread_args->n, thread_args->start_idx, thread_args->end_idx);
+    for (int i = thread_args->start_idx; i < thread_args->end_idx; i++) {
+        thread_args->result[i] = v[i];
+        // printf("Working on row %d\n", i);
+    }
+    free(v);
+    return 0;
+}
+
+//https://www.geeksforgeeks.org/command-line-arguments-in-c-cpp/
+//https://www.javatpoint.com/random-function-in-c
+//https://www.geeksforgeeks.org/dynamically-allocate-2d-array-c/
+//https://www.javatpoint.com/random-function-in-c
+//https://www.geeksforgeeks.org/how-to-measure-time-taken-by-a-program-in-c/

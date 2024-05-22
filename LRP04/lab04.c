@@ -1,196 +1,120 @@
-//https://github.com/nikhilroxtomar/Multiple-Client-Server-Program-in-C-using-fork
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
-#include <math.h>
+#include <string.h>
 #include <sys/time.h>
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <netinet/in.h>
+#include <time.h>
 
-#define PORT 4444
-
-int generateRandomNonZero();
-// double *pearson_cor(int *X, int *y, int n);
-int master(int n, int p, int s);
-int slave(int n, int p, int s);
-
-typedef struct {
-    int thread_id;
-    int n;
-    int start_idx;
-    int end_idx;
-    double *result;
-} ThreadArgs;
+void master(int n, int p);
+int **divide_submatrix(int *M, int n, int t);
 
 int main (int argc, char **argv){
-    FILE *input_file = fopen(argv[1], "r");
-    if (!input_file) {
-        printf("Error: Unable to open input file.\n");
+    if (argc != 4) {
+        printf("Usage: %s n p s\n", argv[0]);
         return 1;
     }
 
-    FILE *output_file = fopen("results.txt", "w");
-    if (!output_file) {
-        printf("Error: Unable to create output file.\n");
-        fclose(input_file);
-        return 1;
-    }
+    int n = atoi(argv[1]);  // size of the square matrix
+    int p = atoi(argv[2]);  // port
+    int s = atoi(argv[3]);  // status
 
-    char line[256];
-    //Read n, p and s as user inputs
-    //n is the size of the square matrix
-    //p is the port number
-    //s is the status of the instance (0 for master and 1 for slave)
-    while (fgets(line, sizeof(line), input_file)) {
-        int n, p, s;
-        if (sscanf(line, "%d %d %d", &n, &p, &s) != 3) {
-            printf("Error: Invalid input format.\n");
-            continue;
-        }
-
-        if (s == 0){
-            //call master
-            master(n,p,s);
-        } else {
-            slave(n,p,s);
-        }
+    if (s == 0){
+        master(n, p);
     }
 }
 
-int master(int n, int p, int s){
-
-    struct timeval start, end;
-
+void master(int n, int p){
+    /*Create a non-zero nxn square matrix M whose elements
+    are assigned with random non-zero positive integers;*/
     time_t t1; 
     srand((unsigned) time (&t1));
-
-    //Create a non-zero n x n square matrix X whose elements are 
-    //assigned with random integers
-    int *X = malloc(n*n*sizeof(int));
+    int *M = malloc(n*n*sizeof(int));
     for (int i = 0; i < n*n; i++){
-        X[i] = generateRandomNonZero(); 
+        M[i] = (rand() % 10) + 1;  // Generating random integers between 1 and 9
     }
 
-    double *v = malloc(n * sizeof(double));
-
-    int t; 
-
-    //Read the configuration file...
-    FILE *config_file = fopen("config_master.txt", "r");
-    if (!config_file) {
-        printf("Error: Unable to open config file.\n");
-        return 1;
+    printf("2D array M\n");
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++)
+            printf("%d ", M[i * n + j]);
+        printf("\n");
     }
-    //...to determine the number of slaves t;
-    if (fscanf(config_file, "%d", &t) != 1) {
-            printf("Error: Invalid configuration file format.\n");
-            fclose(config_file);
-            return 1;
+
+    /*Read the configuration file to determine the IP addresses 
+    and ports of the slaves and the number of slaves t;*/
+    char IP_address[] = "127.0.0.1";
+    int t = 2; // number of slaves
+    
+    // Allocate memory for an array of pointers to hold submatrices
+    // int **submatrices = malloc(t * sizeof(int*));
+    int **submatrices = divide_submatrix(M, n, t);
+
+    struct timeval time_before, time_after;
+    //Take note of the system time time_before;
+    gettimeofday(&time_before, NULL);
+    
+    // for (int i = 0; i < t; i++){
+
+    // }
+
+    // Free memory allocated for each submatrix
+    for (int i = 0; i < t; i++) {
+        // printf("Submatrix %d:\n", i + 1);
+        // int submatrix_width = (n / t) + (i < (n % t) ? 1 : 0); // Calculate width of submatrix
+        // for (int row = 0; row < n; row++) {
+        //     for (int col = 0; col < submatrix_width; col++) {
+        //         printf("%d ", submatrices[i][row * submatrix_width + col]);
+        //     }
+        //     printf("\n");
+        // }
+        printf("Freeing Submatrix %d:\n", i + 1);
+        free(submatrices[i]);
     }
-    if (t <= 0) {
-            printf("Error: Invalid number of slaves in configuration file.\n");
-            fclose(config_file);
-            return 1;
-    }
-    fclose(config_file);
-    // printf("%d", t);
 
-    //Divide X into t submatrices of size n/t x n each
-    ThreadArgs args[t];
-    int block_size = n / t;
-    int remainder = n % t;
-    int start_idx = 0;
-    for (int i = 0; i < t; i++){
-        args[i].thread_id = i + 1;
-        args[i].n = n;
-        args[i].start_idx = start_idx;
-        args[i].end_idx = start_idx + block_size + (i < remainder ? 1 : 0);
-        args[i].result = v;
-    }
-    // Take note of the system time time_before;
-    gettimeofday(&start, NULL);
+    // Free memory allocated for the list of submatrices
+    free(submatrices);
 
-    int sockfd, ret;
-	 struct sockaddr_in serverAddr;
-
-	int newSocket;
-	struct sockaddr_in newAddr;
-
-	socklen_t addr_size;
-
-	char buffer[1024];
-	pid_t childpid;
-
-	sockfd = socket(AF_INET, SOCK_STREAM, 0);
-	if(sockfd < 0){
-		printf("[-]Error in connection.\n");
-		exit(1);
-	}
-	printf("[+]Server Socket is created.\n");
-
-	memset(&serverAddr, '\0', sizeof(serverAddr));
-	serverAddr.sin_family = AF_INET;
-	serverAddr.sin_port = htons(PORT);
-	serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
-
-	ret = bind(sockfd, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
-	if(ret < 0){
-		printf("[-]Error in binding.\n");
-		exit(1);
-	}
-	printf("[+]Bind to port %d\n", 4444);
-
-	if(listen(sockfd, 10) == 0){
-		printf("[+]Listening....\n");
-	}else{
-		printf("[-]Error in binding.\n");
-	}
-
-
-	while(1){
-		newSocket = accept(sockfd, (struct sockaddr*)&newAddr, &addr_size);
-		if(newSocket < 0){
-			exit(1);
-		}
-		printf("Connection accepted from %s:%d\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
-
-		if((childpid = fork()) == 0){
-			close(sockfd);
-
-			while(1){
-				recv(newSocket, buffer, 1024, 0);
-				if(strcmp(buffer, ":exit") == 0){
-					printf("Disconnected from %s:%d\n", inet_ntoa(newAddr.sin_addr), ntohs(newAddr.sin_port));
-					break;
-				}else{
-					printf("Client: %s\n", buffer);
-					send(newSocket, buffer, strlen(buffer), 0);
-					bzero(buffer, sizeof(buffer));
-				}
-			}
-		}
-
-	}
-
-	close(newSocket);
-
-
-	return 0;
-
-
-
-    int submatrix_size = (args[i].end_idx - args[i].start_idx) * n * sizeof(int);
-    char *submatrix_data = (char*)malloc(submatrix_size);
-    memcpy(submatrix_data, &X[args[i].start_idx * n], submatrix_size);
-
+    // Free memory allocated for the original matrix M
+    free(M);
 }
 
-int slave(int n, int p, int s){
-    return 0;
-}
+int **divide_submatrix(int *M, int n, int t){
+    int **submatrices = malloc(t * sizeof(int*));
 
-int generateRandomNonZero() {
-    return (int)(rand() % 100) + 1;  // Generating random integers between 1 and 9
+    // Divide M into t submatrices column-wise
+    int submatrix_width = n / t; // Width of each submatrix
+    int remainder_cols = n % t;  // Number of remaining columns after division
+
+    int start_col = 0;
+    for (int i = 0; i < t; i++) {
+        int submatrix_height = n;  // Height of each submatrix
+
+        // Adjust width for the last submatrix to include any remaining columns
+        int end_col = start_col + submatrix_width + (i < remainder_cols ? 1 : 0);
+
+        // Allocate memory for the submatrix
+        int *submatrix = malloc(n * (end_col - start_col) * sizeof(int));
+
+        // Copy the corresponding columns from M to the submatrix
+        for (int col = start_col; col < end_col; col++) {
+            for (int row = 0; row < n; row++) {
+                submatrix[row * (end_col - start_col) + (col - start_col)] = M[row * n + col];
+            }
+        }
+
+        // Append the submatrix to the list of submatrices
+        submatrices[i] = submatrix;
+
+        // Print the submatrix for verification
+        // printf("Submatrix %d:\n", i + 1);
+        // for (int row = 0; row < n; row++) {
+        //     for (int col = 0; col < end_col - start_col; col++) {
+        //         printf("%d ", submatrix[row * (end_col - start_col) + col]);
+        //     }
+        //     printf("\n");
+        // }
+
+        // Update start_col for the next submatrix
+        start_col = end_col;
+    }
+    return submatrices;
 }

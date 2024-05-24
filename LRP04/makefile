@@ -1,6 +1,8 @@
 HELL := /bin/bash
 SLAVES = 2
 
+
+
 test-loop:
 	for number in 10.0.5.155 10.0.5.184 10.0.4.173 10.0.5.253; do \
 		ping $$number -c 2; \
@@ -19,6 +21,11 @@ copy-folder:
 install-pip:
 	for number in 10.0.4.181 10.0.4.178 10.0.4.179 10.0.5.82; do \
 		sshpass -p "useruser" ssh -f user@$$number 'sudo apt install python3-pip && pip3 install numpy'; \
+	done
+
+install-psutil:
+	for number in 10.0.4.181 10.0.4.178 10.0.4.179 10.0.5.82; do \
+		sshpass -p "useruser" ssh -f user@$$number 'sudo apt install python3-pip && pip3 install psutil'; \
 	done
 
 run-files2: copy-folder
@@ -40,6 +47,7 @@ delete-dir:
 	for number in 10.0.5.155 10.0.5.184 10.0.4.182 10.0.5.253; do \
 		sshpass -p useruser ssh user@$$number rm -r corrales; \
 	done
+
 
 # ps-check:
 # 	for number in 01 02 03 04 05 06 07 08 09 10 12 17 18 19 20 22; do \

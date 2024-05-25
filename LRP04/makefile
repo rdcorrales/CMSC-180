@@ -1,7 +1,9 @@
 HELL := /bin/bash
 SLAVES = 2
 
-
+run-same:
+	
+done 
 
 test-loop:
 	for number in 10.0.5.155 10.0.5.184 10.0.4.173 10.0.5.253; do \

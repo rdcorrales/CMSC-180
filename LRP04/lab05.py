@@ -7,6 +7,7 @@ import numpy as np
 import os
 import psutil
 import random
+import math
 
 def generate_y_test():
     return ([53.1, 49.7, 48.4, 54.2, 54.9, 43.7, 47.2, 45.2, 54.4, 50.4])
@@ -20,8 +21,6 @@ def generate_x_test():
         array.append(temp_array)
 
     return array
-
-
 
 def main():
     n, p, s, t = input("Enter n, p, s, t: ").split()
@@ -41,26 +40,41 @@ def main():
     else:
         run_slave(host, p)
 
-
-def run_master(host, port, matrix_size, num_slaves):
+def core_affine_master():
     process = psutil.Process(os.getpid())
     master_core = 0
     process.cpu_affinity([master_core])
     print(f"Master process is pinned to core {master_core}")
 
-    # matrix = np.random.randint(100, size=(matrix_size, matrix_size)).tolist()
+def core_affine_slave():
+    process = psutil.Process(os.getpid())
+    available_cores = psutil.cpu_count(logical=False)
+    slave_core = random.randint(1, available_cores - 1)
+    process.cpu_affinity([slave_core])
+    print(f"Slave process is pinned to core {slave_core}")
+
+def run_master(host, port, matrix_size, num_slaves):
+    #core_affine
+    core_affine_master()
+
+    matrix = np.random.randint(100, size=(matrix_size, matrix_size)).tolist()
+    
     #test
-    matrix = generate_x_test()
+    # matrix = generate_x_test()
+    
     submatrices = split_matrix(matrix, num_slaves)
+    
     # print
     # print(matrix)
     # for submatrix in submatrices:
     #     print(submatrix)
     # print_matrix_elements(submatrices)
     
-    # y_matrix = np.random.randint(100, size=matrix_size).tolist()
+    y_matrix = np.random.randint(100, size=matrix_size).tolist()
+    
     # test
-    y_matrix = generate_y_test()
+    # y_matrix = generate_y_test()
+    
     #print
     # print(y_matrix)
 
@@ -78,13 +92,17 @@ def run_master(host, port, matrix_size, num_slaves):
         server_socket.listen(num_slaves)
         print('Server is listening for connections')
 
-        time_dict = {}
         threads = []
+        slave_ids = {}
+        results = [None] * num_slaves
 
         for i in range(num_slaves):
             client_socket, client_address = server_socket.accept()
+            print(f'Connected to client {client_address}')
+            slave_id = i
+            slave_ids[client_address] = slave_id
             # print_matrix_elements(submatrices[i])
-            thread = threading.Thread(target=handle_client, args=(client_socket, client_address, pickle.dumps(submatrices[i])))
+            thread = threading.Thread(target=handle_client, args=(client_socket, client_address, pickle.dumps(submatrices[slave_id]), slave_id, results))
             threads.append(thread)
             thread.start()
 
@@ -93,27 +111,34 @@ def run_master(host, port, matrix_size, num_slaves):
 
     stop_time = timeit.default_timer()
 
-    # print("Total time taken:", sum(time_dict.values()))
+    for slave_id, result in enumerate(results):
+        print(f"Results from slave {slave_id}: {result}")
+
     print("Total time taken:", stop_time - start_time)
 
-def handle_client(client_socket, client_address, serialized_data):
+def handle_client(client_socket, client_address, serialized_data, slave_id, results):
     with client_socket:
         print(f'Connected to client {client_address}')
         client_socket.sendall(len(serialized_data).to_bytes(4, byteorder='big') + serialized_data)
         print(f'Sent data to client {client_address}')
 
-        ack_message = client_socket.recv(4096).decode()
-        print(f'Received acknowledgment from client {client_address}: {ack_message}')
+        r_array_length = int.from_bytes(client_socket.recv(4), byteorder='big')
+        r_array_data = bytearray()
 
-        # stop_time = timeit.default_timer()
-        # time_dict[client_address] = stop_time - start_time
+        while len(r_array_data) < r_array_length:
+            data_chunk = client_socket.recv(4096)
+            r_array_data.extend(data_chunk)
+
+        # ack_message = client_socket.recv(4096).decode()
+        # print(f'Received acknowledgment from client {client_address}: {ack_message}')
+        r_array = pickle.loads(r_array_data)
+        results[slave_id] = r_array
+
+        print(f'Slave ID: {slave_id} completed processing')
 
 def run_slave(host, port):
-    process = psutil.Process(os.getpid())
-    available_cores = psutil.cpu_count(logical=False)
-    slave_core = random.randint(1, available_cores - 1)
-    process.cpu_affinity([slave_core])
-    print(f"Slave process is pinned to core {slave_core}")
+    #core_affine
+    core_affine_slave()
 
     connected = False
     while not connected:
@@ -134,12 +159,41 @@ def run_slave(host, port):
 
                 data = pickle.loads(serialized_data)
                 y_matrix = data.pop(-1)
+                lengths = len(data[0])
+                n = len(y_matrix)
                 # print(f'Received data from server: {data}')
                 # print_matrix_elements(data)
-                print(data)
-                print(y_matrix)
+                # print(data)
+                # print(y_matrix)
+                # print(lengths)
+                
+                r_array = []
 
-                client_socket.sendall(b'ack')
+                for i in range(lengths):
+                    sum_x = 0
+                    sum_x_sq = 0
+                    for row in data:
+                        sum_x += row[i]
+                        sum_x_sq += (row[i] * row[i])
+                    sum_y = sum(y_matrix)                    
+                    sum_y_sq = 0
+                    for y in y_matrix:
+                        sum_y_sq += y*y
+                    sum_xy = 0
+                    for row, y in zip(data, y_matrix):
+                        sum_xy += row[i]*y
+                    
+                    num = (n*sum_xy) - (sum_x*sum_y)
+                    denom = math.sqrt(((n*sum_x_sq)-(sum_x*sum_x))*((n*sum_y_sq)-(sum_y*sum_y)))
+                    r = num/denom
+                    
+                    r_array.append(r)
+                
+                print(r_array)
+
+                serialized_r_array = pickle.dumps(r_array)
+                client_socket.sendall(len(serialized_r_array).to_bytes(4, byteorder='big') + serialized_r_array)
+                # client_socket.sendall(b'ack')
 
                 stop_time = timeit.default_timer()
                 print("Time taken:", stop_time - start_time)
@@ -147,7 +201,6 @@ def run_slave(host, port):
         except ConnectionRefusedError:
             print("[INFO] Connection refused by the server. Retrying in 1 second...")
             time.sleep(1)
-
 
 def split_matrix(matrix, num_slaves):
     n = len(matrix)

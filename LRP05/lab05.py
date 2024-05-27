@@ -109,10 +109,16 @@ def run_master(host, port, matrix_size, num_slaves):
         for thread in threads:
             thread.join()
 
-    stop_time = timeit.default_timer()
+    # for slave_id, result in enumerate(results):
+    #     print(f"Results from slave {slave_id}: {result}")
+    combined_results = []
+    for result in results:
+        if result:
+            combined_results.extend(result)
 
-    for slave_id, result in enumerate(results):
-        print(f"Results from slave {slave_id}: {result}")
+    # print("Combined results:", combined_results)    
+
+    stop_time = timeit.default_timer()
 
     print("Total time taken:", stop_time - start_time)
 
@@ -148,8 +154,6 @@ def run_slave(host, port):
                 connected = True
                 print('Client has connected to the server')
 
-                start_time = timeit.default_timer()
-
                 data_length = int.from_bytes(client_socket.recv(4), byteorder='big')
                 serialized_data = bytearray()
 
@@ -159,6 +163,9 @@ def run_slave(host, port):
 
                 data = pickle.loads(serialized_data)
                 y_matrix = data.pop(-1)
+                
+                start_time = timeit.default_timer()
+                
                 lengths = len(data[0])
                 n = len(y_matrix)
                 # print(f'Received data from server: {data}')
@@ -189,13 +196,13 @@ def run_slave(host, port):
                     
                     r_array.append(r)
                 
-                print(r_array)
+                # print(r_array)
+                stop_time = timeit.default_timer()
 
                 serialized_r_array = pickle.dumps(r_array)
                 client_socket.sendall(len(serialized_r_array).to_bytes(4, byteorder='big') + serialized_r_array)
                 # client_socket.sendall(b'ack')
-
-                stop_time = timeit.default_timer()
+                
                 print("Time taken:", stop_time - start_time)
 
         except ConnectionRefusedError:
